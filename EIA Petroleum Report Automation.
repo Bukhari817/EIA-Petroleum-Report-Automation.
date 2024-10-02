@@ -1,0 +1,107 @@
+import os
+import schedule
+import time
+import requests
+from datetime import datetime
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+import PyPDF2
+import logging
+from dotenv import load_dotenv
+
+# Load environment variables from the .env file
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(filename='eia_report.log', level=logging.INFO, format='%(asctime)s:%(levelname)s:%(message)s')
+
+# Email credentials loaded from environment variables
+FROM_EMAIL = os.getenv('EMAIL_USER')
+EMAIL_PASSWORD = os.getenv('EMAIL_PASS')
+TO_EMAIL = "willpape@pennquartercapital.com"
+
+# Function to download the EIA Petroleum Inventory Report
+def download_eia_report():
+    url = "https://www.eia.gov/petroleum/supply/weekly/pdf/wpsrall.pdf"
+    today = datetime.now().strftime('%Y-%m-%d')
+    filename = f"EIA_Petroleum_Report_{today}.pdf"
+
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            with open(filename, 'wb') as file:
+                file.write(response.content)
+            logging.info(f"Downloaded {filename}")
+            analysis = analyze_pdf(filename)
+            send_email(analysis)
+        else:
+            logging.error(f"Failed to download EIA report, status code: {response.status_code}")
+    except Exception as e:
+        logging.error(f"Error downloading EIA report: {str(e)}")
+
+# Function to extract and analyze PDF content (simplified for demonstration)
+def analyze_pdf(filename):
+    try:
+        with open(filename, 'rb') as file:
+            reader = PyPDF2.PdfReader(file)
+            text = ''
+            for page in reader.pages:
+                text += page.extract_text()
+        
+        # Example analysis (You would do more detailed analysis here)
+        short_term = "Buy CLU24 contracts if prices dip below $78."
+        long_term = "Hold positions targeting $85 as geopolitical risks may increase."
+
+        analysis = f"""
+        Weekly EIA Petroleum Report Analysis - {datetime.now().strftime('%Y-%m-%d')}
+
+        Short Term Recommendation:
+        {short_term}
+
+        Long Term Recommendation:
+        {long_term}
+
+        Summary:
+        The analysis suggests that short-term price movements could present buying opportunities, while the long-term outlook remains bullish due to potential geopolitical tensions.
+        """
+
+        return analysis
+    except Exception as e:
+        logging.error(f"Error analyzing PDF: {str(e)}")
+        return f"Error analyzing PDF: {str(e)}"
+
+# Function to send the analysis via email
+def send_email(analysis):
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = FROM_EMAIL
+        msg['To'] = TO_EMAIL
+        msg['Subject'] = "Weekly EIA Petroleum Report Analysis"
+
+        msg.attach(MIMEText(analysis, 'plain'))
+
+        # Setup the SMTP server (using Gmail example)
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(FROM_EMAIL, EMAIL_PASSWORD)
+        server.sendmail(FROM_EMAIL, TO_EMAIL, msg.as_string())
+        server.quit()
+
+        logging.info(f"Email sent to {TO_EMAIL}")
+    except Exception as e:
+        logging.error(f"Failed to send email: {str(e)}")
+
+# Schedule the download every Wednesday at 10:30 AM EST
+schedule.every().wednesday.at("10:30").do(download_eia_report)
+
+# Keep the script running
+try:
+    logging.info("Script started and waiting for scheduled tasks...")
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+except KeyboardInterrupt:
+    logging.info("Script stopped manually.")
+except Exception as e:
+    logging.error(f"Unexpected error: {str(e)}")
